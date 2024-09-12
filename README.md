@@ -1,7 +1,6 @@
 - 👋 Hi, I’m @timewatcher1033
-- 👀 I’m interested in 3D modeling, motion design
-- 🌱 I’m currently learning Cinema4D
-- 💞️ I’m looking to collaborate on NFT projects
+- 👀 I’m interested in Blender
+- 🌱 I’m currently learning Python
 - 📫 How to reach me timewatcher@ukr.net
 
 <!---

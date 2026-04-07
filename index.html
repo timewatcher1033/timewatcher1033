@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple Basketball Canvas Game</title>
+  <style>
+    :root {
+      --bg: rgb(223, 223, 223); /* ~75% white, 25% gray */
+      --hoop: rgb(54, 58, 64);
+      --ball: rgb(230, 126, 34);
+      --line: rgb(118, 64, 21);
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      user-select: none;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: crosshair;
+      background: var(--bg);
+    }
+
+    .hud {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 16px;
+      color: #222;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 8px;
+      padding: 8px 10px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="hud" id="hud">Score: 0</div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const hud = document.getElementById('hud');
+
+    const gravity = 1700; // px/s^2
+    const bounce = 0.72;
+    const dragPower = 2.0;
+    const maxShotSpeed = 2100;
+
+    const ball = {
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      radius: 22,
+      isDragging: false,
+      trail: []
+    };
+
+    const basket = {
+      x: 0,
+      y: 0,
+      w: 140,
+      h: 100,
+      border: 10,
+      wall: 'right'
+    };
+
+    let score = 0;
+    let lastTime = performance.now();
+    let dragStart = null;
+    let pointerHistory = [];
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+
+      basket.w = Math.max(80, canvas.width * 0.10);
+      basket.h = Math.max(60, canvas.height * 0.10);
+      basket.border = Math.max(5, Math.round(Math.min(canvas.width, canvas.height) * 0.015));
+
+      if (!ball.isDragging && ball.x === 0 && ball.y === 0) {
+        resetBall();
+      }
+
+      clampBallInside();
+      placeBasketAtWall(basket.wall);
+    }
+
+    function resetBall() {
+      ball.x = canvas.width * 0.5;
+      ball.y = canvas.height * 0.75;
+      ball.vx = 0;
+      ball.vy = 0;
+      ball.trail.length = 0;
+    }
+
+    function clampBallInside() {
+      ball.x = Math.min(canvas.width - ball.radius, Math.max(ball.radius, ball.x || canvas.width * 0.5));
+      ball.y = Math.min(canvas.height - ball.radius, Math.max(ball.radius, ball.y || canvas.height * 0.75));
+    }
+
+    function randomWall() {
+      const walls = ['top', 'right', 'bottom', 'left'];
+      return walls[Math.floor(Math.random() * walls.length)];
+    }
+
+    function placeBasketAtWall(forceWall = null) {
+      basket.wall = forceWall || randomWall();
+
+      if (basket.wall === 'top') {
+        basket.x = Math.random() * (canvas.width - basket.w);
+        basket.y = 0;
+      } else if (basket.wall === 'bottom') {
+        basket.x = Math.random() * (canvas.width - basket.w);
+        basket.y = canvas.height - basket.h;
+      } else if (basket.wall === 'left') {
+        basket.x = 0;
+        basket.y = Math.random() * (canvas.height - basket.h);
+      } else {
+        basket.x = canvas.width - basket.w;
+        basket.y = Math.random() * (canvas.height - basket.h);
+      }
+    }
+
+    function getPointerPos(event) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+        t: performance.now()
+      };
+    }
+
+    function onPointerDown(e) {
+      const p = getPointerPos(e);
+      const dx = p.x - ball.x;
+      const dy = p.y - ball.y;
+      if (dx * dx + dy * dy <= (ball.radius + 12) * (ball.radius + 12)) {
+        ball.isDragging = true;
+        dragStart = p;
+        pointerHistory = [p];
+        ball.vx = 0;
+        ball.vy = 0;
+      }
+    }
+
+    function onPointerMove(e) {
+      if (!ball.isDragging) return;
+      const p = getPointerPos(e);
+      pointerHistory.push(p);
+      if (pointerHistory.length > 8) pointerHistory.shift();
+      ball.x = p.x;
+      ball.y = p.y;
+      clampBallInside();
+    }
+
+    function onPointerUp(e) {
+      if (!ball.isDragging) return;
+
+      const release = getPointerPos(e);
+      pointerHistory.push(release);
+
+      const first = pointerHistory[0] || dragStart || release;
+      const last = pointerHistory[pointerHistory.length - 1] || release;
+      const dt = Math.max(0.016, (last.t - first.t) / 1000);
+      const dx = last.x - first.x;
+      const dy = last.y - first.y;
+
+      // Flick direction follows mouse movement.
+      const vx = (dx / dt) * dragPower;
+      const vy = (dy / dt) * dragPower;
+      const speed = Math.hypot(vx, vy);
+
+      if (speed > maxShotSpeed) {
+        const s = maxShotSpeed / speed;
+        ball.vx = vx * s;
+        ball.vy = vy * s;
+      } else {
+        ball.vx = vx;
+        ball.vy = vy;
+      }
+
+      ball.isDragging = false;
+      dragStart = null;
+      pointerHistory = [];
+    }
+
+    function update(dt) {
+      if (!ball.isDragging) {
+        ball.vy += gravity * dt;
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
+
+        if (ball.x - ball.radius < 0) {
+          ball.x = ball.radius;
+          ball.vx = Math.abs(ball.vx) * bounce;
+        } else if (ball.x + ball.radius > canvas.width) {
+          ball.x = canvas.width - ball.radius;
+          ball.vx = -Math.abs(ball.vx) * bounce;
+        }
+
+        if (ball.y - ball.radius < 0) {
+          ball.y = ball.radius;
+          ball.vy = Math.abs(ball.vy) * bounce;
+        } else if (ball.y + ball.radius > canvas.height) {
+          ball.y = canvas.height - ball.radius;
+          ball.vy = -Math.abs(ball.vy) * bounce;
+          ball.vx *= 0.92;
+        }
+      }
+
+      ball.trail.push({ x: ball.x, y: ball.y });
+      if (ball.trail.length > 6) ball.trail.shift();
+
+      checkScore();
+    }
+
+    function checkScore() {
+      const insideX = ball.x > basket.x && ball.x < basket.x + basket.w;
+      const insideY = ball.y > basket.y && ball.y < basket.y + basket.h;
+      if (!insideX || !insideY) return;
+
+      score += 1;
+      hud.textContent = `Score: ${score}`;
+      resetBall();
+      placeBasketAtWall(); // move only after score
+    }
+
+    function drawBasket() {
+      ctx.save();
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--hoop').trim();
+      ctx.lineWidth = basket.border;
+      ctx.strokeRect(basket.x, basket.y, basket.w, basket.h);
+      ctx.restore();
+    }
+
+    function drawBall() {
+      for (let i = 0; i < ball.trail.length; i += 1) {
+        const p = ball.trail[i];
+        const alpha = (i + 1) / ball.trail.length * 0.2;
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(230, 126, 34, ${alpha})`;
+        ctx.arc(p.x, p.y, ball.radius * 0.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ball').trim();
+      ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--line').trim();
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, ball.radius * 0.98, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(ball.x - ball.radius, ball.y);
+      ctx.quadraticCurveTo(ball.x, ball.y - ball.radius * 0.7, ball.x + ball.radius, ball.y);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(ball.x - ball.radius, ball.y);
+      ctx.quadraticCurveTo(ball.x, ball.y + ball.radius * 0.7, ball.x + ball.radius, ball.y);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(ball.x, ball.y - ball.radius);
+      ctx.lineTo(ball.x, ball.y + ball.radius);
+      ctx.stroke();
+    }
+
+    function drawAimLine() {
+      if (!ball.isDragging || pointerHistory.length < 1) return;
+      const p = pointerHistory[pointerHistory.length - 1];
+      ctx.save();
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = 'rgba(40, 40, 40, 0.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(ball.x, ball.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBasket();
+      drawAimLine();
+      drawBall();
+    }
+
+    function frame(now) {
+      const dt = Math.min(0.033, (now - lastTime) / 1000);
+      lastTime = now;
+
+      update(dt);
+      render();
+      requestAnimationFrame(frame);
+    }
+
+    window.addEventListener('resize', resize);
+    canvas.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+
+    resize();
+    placeBasketAtWall();
+    requestAnimationFrame((t) => {
+      lastTime = t;
+      frame(t);
+    });
+  </script>
+</body>
+</html>
